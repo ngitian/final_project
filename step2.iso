@@ -1,0 +1,172 @@
+#include <LiquidCrystal_I2C.h>
+#include <Wire.h>
+#include <WiFi.h>
+#include <PubSubClient.h>
+#include "DHTesp.h"
+#include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+// LED
+const byte ledPins[] = {15, 2, 4}; //define red, green, blue led pins
+const byte chns[] = {0, 1, 2}; //define the pwm channels
+int red, green, blue;
+
+// DHT11
+DHTesp dht; //Define the DHT object
+int dhtPin = 33; //Define the dht pin
+
+// LCD
+#define SDA 13 //Define SDA pins
+#define SCL 14 //Define SCL pins
+LiquidCrystal_I2C lcd(0x27,16,2);
+
+// MQTT
+const char *mqtt_broker = "192.168.1.229";
+const char *topic = "esp32/temperature";
+const char *respondTopic = "esp32/respond";
+const int mqtt_port = 1883;
+
+//WIFI
+const char *ssid = "Ng-2G"; // Enter your WiFi name
+const char *password = "RonnyHuang05";  // Enter WiFi password
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+void setup() {
+  // LED
+  for (int i = 0; i < 3; i++) { //setup the pwm channels,1KHz,8bit
+    ledcSetup(chns[i], 1000, 8);
+    ledcAttachPin(ledPins[i], chns[i]);
+  }
+  
+  // DHT11
+  dht.setup(dhtPin, DHTesp::DHT11);//Initialize the dht pin and dht object
+  Serial.begin(115200); //Set the baud rate to 115200
+
+  // LCD
+  Wire.begin(SDA, SCL); // attach the IIC pin
+  lcd.init(); // LCD driver initialization
+  lcd.backlight(); // Turn on the backlight
+  // lcd.setCursor(0,0); // Move the cursor to row 0, column 0
+  // lcd.print("hello, world! "); // The print content is displayed on the LCD
+
+  // WIFI
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+      delay(500);
+      Serial.println("Connecting to WiFi..");
+  }
+  Serial.println("Connected to the WiFi network");
+
+  // MQTT Broker
+  client.setServer(mqtt_broker, mqtt_port);
+  client.setCallback(callback);
+  while (!client.connected()) {
+      String client_id = "esp32-client-";
+      client_id += String(WiFi.macAddress());
+      Serial.printf("The client %s connects to the mqtt broker\n", client_id.c_str());
+      if (client.connect(client_id.c_str())) {
+          Serial.println("MQTT broker server connected");
+      } else {
+          Serial.print("failed with state ");
+          Serial.print(client.state());
+          Serial.println();
+          delay(2000);
+      }
+ }
+
+ // MQTT publish and subscribe
+ client.publish(respondTopic, "ESP32 is connected");
+ client.subscribe(topic);
+}
+
+void loop() {
+  // LED
+  // red = random(0, 256);
+  // green = random(0, 256);
+  // blue = random(0, 256);
+  // setColor(red, green, blue);
+
+  // DHT11
+  // flag:TempAndHumidity newValues = dht.getTempAndHumidity();//Get the Temperature and humidity
+  // if (dht.getStatus() != 0) { //Judge if the correct value is read
+  //   goto flag; //If there is an error, go back to the flag and re-read the data
+  // }
+  // Serial.println("Temperature:" + String(dht.toFahrenheit(newValues.temperature)) + " Humidity:" + String(newValues.humidity));
+  
+  // LCD
+  // lcd.setCursor(0, 0); // Move the cursor to row 0, column 0
+  // lcd.print("Indoor:"); 
+  // lcd.print(String(dht.toFahrenheit(newValues.temperature)));
+  // lcd.print("F");
+  // lcd.setCursor(0, 1); 
+  // lcd.print("Outdoor:");
+  // lcd.print(String(newValues.temperature));
+  
+  // MQTT
+  Serial.printf("Loop bool: %d\n", client.loop());
+  Serial.printf("State: %d\n", client.state());
+
+  // master delay
+  delay(5000);
+}
+
+void setColor(byte r, byte g, byte b) {
+  ledcWrite(chns[0], 255 - r); //Common anode LED, low level to turn on the led.
+  ledcWrite(chns[1], 255 - g);
+  ledcWrite(chns[2], 255 - b);
+}
+
+void callback(char *topic, byte *payload, unsigned int length) {
+  Serial.print("Message arrived in topic: ");
+  Serial.println(topic);
+  Serial.print("Message:");
+  for (int i = 0; i < length; i++) {
+    Serial.print((char) payload[i]);
+    // if ((char) payload[i] == '1') {
+    //   // digitalWrite(PIN_LED, HIGH);  
+    // } else if ((char) payload[i] == '2') {
+    //   // digitalWrite(PIN_LED, LOW);
+    // }
+ }
+ Serial.println();
+ TempAndHumidity newValues = dht.getTempAndHumidity();
+ float insideTemp = dht.toFahrenheit(newValues.temperature);
+ char tempTemp[5];
+ for (int i = 0; i < 5; i++) {
+   if (i < length) {
+    tempTemp[i] = (char) payload[i];
+   } else {
+     tempTemp[i] = ' ';
+   }
+ }
+ float outsideTemp = atof(tempTemp);
+ Serial.println("-----------------------");
+
+ if (outsideTemp > insideTemp) {
+   Serial.printf("Outside is hotter than inside, Temperature: %f, message temp: %f\n", insideTemp, outsideTemp);
+   setColor(30, 30, 255);
+ } else if (outsideTemp < insideTemp) {
+   Serial.printf("outside is cooler than inside, Temperature: %f, message temp: %f\n", insideTemp, outsideTemp);
+   setColor(220, 220, 0);
+ }
+ Serial.println();
+
+  // write to led
+  lcd.clear();
+  lcd.print("Indoor:"); 
+  lcd.print(String(insideTemp));
+  lcd.print("F");
+  lcd.setCursor(0, 1); 
+  lcd.print("Outdoor:");
+  lcd.setCursor(0, 1); 
+  lcd.print("Outdoor:");
+  lcd.print(String(outsideTemp));
+  lcd.print("F");
+
+  // to keep alive
+  char tempChar[10];
+  sprintf(tempChar, "%.2f", insideTemp);
+  client.publish(respondTopic, tempChar); 
+}
