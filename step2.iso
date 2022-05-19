@@ -28,8 +28,8 @@ const char *respondTopic = "esp32/respond";
 const int mqtt_port = 1883;
 
 //WIFI
-const char *ssid = "Ng-2G"; // Enter your WiFi name
-const char *password = "RonnyHuang05";  // Enter WiFi password
+const char *ssid = "wifi name"; // Enter your WiFi name
+const char *password = "wifi password";  // Enter WiFi password
 WiFiClient espClient;
 PubSubClient client(espClient);
 
